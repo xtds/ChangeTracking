@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Linq;
 
 namespace ChangeTracking
 {
@@ -11,6 +12,9 @@ namespace ChangeTracking
         private Action<T> _DeleteItem;
         private readonly bool _MakeComplexPropertiesTrackable;
         private readonly bool _MakeCollectionPropertiesTrackable;
+        private ListSortDirection _sortDirection;
+        private PropertyDescriptor _sortProperty;
+        private bool _isSorted;
 
         public event NotifyCollectionChangedEventHandler CollectionChanged;
 
@@ -96,5 +100,49 @@ namespace ChangeTracking
 
             return trackable;
         }
+
+        protected override void ApplySortCore(PropertyDescriptor prop,
+            ListSortDirection direction)
+        {
+            _isSorted = true;
+            _sortDirection = direction;
+            _sortProperty = prop;
+
+            Func<T, object> predicate = n => n.GetType().GetProperty(prop.Name)
+                .GetValue(n, null);
+
+            ResetItems(_sortDirection == ListSortDirection.Ascending
+                ? Items.AsParallel().OrderBy(predicate)
+                : Items.AsParallel().OrderByDescending(predicate));
+        }
+
+        protected override void RemoveSortCore()
+        {
+            _isSorted = false;
+            _sortDirection = base.SortDirectionCore;
+            _sortProperty = base.SortPropertyCore;
+
+            ResetBindings();
+        }
+
+        private void ResetItems(IEnumerable<T> items)
+        {
+            RaiseListChangedEvents = false;
+            var tempList = items.ToList();
+            ClearItems();
+
+            foreach (var item in tempList) Add(item);
+
+            RaiseListChangedEvents = true;
+            ResetBindings();
+        }
+
+        protected override bool SupportsSortingCore => true;
+
+        protected override bool IsSortedCore => _isSorted;
+
+        protected override ListSortDirection SortDirectionCore => _sortDirection;
+
+        protected override PropertyDescriptor SortPropertyCore => _sortProperty;
     }
 }
